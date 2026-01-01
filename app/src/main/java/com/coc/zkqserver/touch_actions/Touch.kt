@@ -79,24 +79,70 @@ class Touch {
 
             scope.launch {
                 val startTime = SystemClock.uptimeMillis()
-                val steps = (duration / 10).toInt().coerceAtLeast(1)
+                val steps = (duration / 5).toInt().coerceAtLeast(1)
+
+                if (!jitter) {
+                    // Move in a straight line without any jitter or curves
+                    for (i in 1..steps) {
+                        val progress = i.toFloat() / steps
+                        val currentX = fromX + (x - fromX) * progress
+                        val currentY = fromY + (y - fromY) * progress
+                        val currentTime = startTime + (duration * progress).toLong()
+
+                        state.lastX = currentX
+                        state.lastY = currentY
+
+                        injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, currentTime)
+                        // Randomize delay slightly to avoid perfectly uniform intervals
+                        delay(Random.nextLong(4, 6))
+                    }
+
+                    state.lastX = x
+                    state.lastY = y
+                    injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, SystemClock.uptimeMillis())
+                    return@launch
+                }
+
+                // jitter == true: build a path consisting of a single quadratic Bezier curve
+                val dx = x - fromX
+                val dy = y - fromY
+                // normalize direction (avoid division by zero)
+                val length = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(1f)
+                val ux = dx / length
+                val uy = dy / length
+                // perpendicular vector
+                val px = -uy
+                val py = ux
+
+                // randomize curve offset magnitude (small, human-like)
+                val maxCurveOffset = 50f + Random.nextFloat() * 20f
+
+                // single control point placed near midpoint along the straight line, offset perpendicularly
+                val cx = fromX + dx * 0.5f + px * ((Random.nextFloat() - 0.5f) * 2f * maxCurveOffset)
+                val cy = fromY + dy * 0.5f + py * ((Random.nextFloat() - 0.5f) * 2f * maxCurveOffset)
 
                 for (i in 1..steps) {
                     val progress = i.toFloat() / steps
-                    // Add slight human-like jitter (up to 1.5 pixels) if enabled
-                    val jitterX = if (jitter) (Random.nextFloat() - 0.5f) * 1.5f else 0f
-                    val jitterY = if (jitter) (Random.nextFloat() - 0.5f) * 1.5f else 0f
-
-                    val currentX = fromX + (x - fromX) * progress + jitterX
-                    val currentY = fromY + (y - fromY) * progress + jitterY
                     val currentTime = startTime + (duration * progress).toLong()
 
-                    state.lastX = currentX
-                    state.lastY = currentY
+                    // single quadratic Bezier: from -> to, control = (cx, cy)
+                    val t = progress
+                    val inv = 1f - t
+                    val bx = inv * inv * fromX + 2f * inv * t * cx + t * t * x
+                    val by = inv * inv * fromY + 2f * inv * t * cy + t * t * y
+
+                    // small per-step random jitter to simulate human noise
+                    val jitterX = (Random.nextFloat() - 0.5f) * 3f
+                    val jitterY = (Random.nextFloat() - 0.5f) * 3f
+
+                    val finalX = bx + jitterX
+                    val finalY = by + jitterY
+
+                    state.lastX = finalX
+                    state.lastY = finalY
 
                     injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, currentTime)
-                    // Randomize delay between 8ms and 12ms to avoid perfect 10ms intervals
-                    delay(Random.nextLong(8, 13))
+                    delay(Random.nextLong(4, 6))
                 }
 
                 state.lastX = x
@@ -104,6 +150,7 @@ class Touch {
                 injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, SystemClock.uptimeMillis())
             }
         }
+
 
         @Synchronized
         fun touchUp(id: Int) {
