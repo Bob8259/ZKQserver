@@ -42,6 +42,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.json)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.websockets)
