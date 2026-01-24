@@ -1,6 +1,10 @@
 package com.coc.zkqserver
 
+import com.coc.zkqserver.command_handlers.DatabaseHandler
+import com.coc.zkqserver.command_handlers.FileHandler
+import com.coc.zkqserver.command_handlers.SystemHanlder
 import com.coc.zkqserver.command_handlers.TouchHandler
+import com.google.gson.JsonParser
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
@@ -21,7 +25,7 @@ object ShellServer {
                 install(WebSockets) {
                     pingPeriodMillis = 15000L
                     timeoutMillis = 15000L
-                    maxFrameSize = Long.MAX_VALUE
+                    maxFrameSize = 20 * 1024 * 1024L
                     masking = false
                 }
                 routing {
@@ -31,7 +35,33 @@ object ShellServer {
                             for (frame in incoming) {
                                 if (frame is Frame.Text) {
                                     val text = frame.readText()
-                                    TouchHandler.handle(text)
+                                    try {
+                                        val jsonElement = JsonParser.parseString(text)
+                                        if (jsonElement.isJsonObject) {
+                                            val actionType =
+                                                jsonElement.asJsonObject.getAsJsonPrimitive("actionType")?.asString
+                                            when (actionType) {
+                                                "file_action" -> {
+                                                    val response = FileHandler.handle(text)
+                                                    send(Frame.Text(response))
+                                                }
+                                                "system_action" -> {
+                                                    val response = SystemHanlder.handle(text)
+                                                    send(Frame.Text(response))
+                                                }
+                                                "database_action" -> {
+                                                    val response = DatabaseHandler.handle(text)
+                                                    send(Frame.Text(response))
+                                                }
+                                                else -> {
+                                                    // Removed clipboard_action; defaults to TouchHandler
+                                                    TouchHandler.handle(text)
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        println("Error handling frame: ${e.message}")
+                                    }
                                 }
                             }
                         } catch (e: Exception) {

@@ -1,4 +1,4 @@
-package com.coc.zkqserver.file_action
+package com.coc.zkqserver.file_actions
 
 import java.io.File
 import java.io.IOException
@@ -60,5 +60,33 @@ object FileActions {
     fun checkFileExists(path: String): Boolean {
         val file = File(path)
         return file.exists()
+    }
+
+    /**
+     * Copy a file from [sourcePath] to [destPath].
+     */
+    @Throws(IOException::class)
+    fun copyFile(sourcePath: String, destPath: String): Boolean {
+        val source = File(sourcePath)
+        val dest = File(destPath)
+        if (!source.exists()) throw IOException("Source file not found: $sourcePath")
+        
+        dest.parentFile?.let { if (!it.exists()) it.mkdirs() }
+        source.copyTo(dest, overwrite = true)
+        return true
+    }
+
+    /**
+     * Rename a file from [oldPath] to [newPath].
+     */
+    @Throws(IOException::class)
+    fun renameFile(oldPath: String, newPath: String): Boolean {
+        val oldFile = File(oldPath)
+        val newFile = File(newPath)
+        if (!oldFile.exists()) throw IOException("Source file not found: $oldPath")
+        if (newFile.exists()) throw IOException("Destination file already exists: $newPath")
+
+        newFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
+        return oldFile.renameTo(newFile)
     }
 }
