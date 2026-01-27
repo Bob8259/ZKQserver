@@ -4,6 +4,7 @@ import com.coc.zkqserver.command_handlers.DatabaseHandler
 import com.coc.zkqserver.command_handlers.FileHandler
 import com.coc.zkqserver.command_handlers.SystemHanlder
 import com.coc.zkqserver.command_handlers.TouchHandler
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -41,6 +42,12 @@ object ShellServer {
                                             val actionType =
                                                 jsonElement.asJsonObject.getAsJsonPrimitive("actionType")?.asString
                                             when (actionType) {
+                                                "connection_test" -> {
+                                                    val response = JsonObject()
+                                                    response.addProperty("status", "success")
+                                                    response.addProperty("data", "connected")
+                                                    send(Frame.Text(response.toString()))
+                                                }
                                                 "file_action" -> {
                                                     val response = FileHandler.handle(text)
                                                     send(Frame.Text(response))
