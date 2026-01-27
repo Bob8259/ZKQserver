@@ -55,7 +55,8 @@ object ShellServer {
                                                 }
                                                 else -> {
                                                     // Removed clipboard_action; defaults to TouchHandler
-                                                    TouchHandler.handle(text)
+                                                    val response = TouchHandler.handle(text)
+                                                    send(Frame.Text(response))
                                                 }
                                             }
                                         }
