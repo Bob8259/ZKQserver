@@ -23,15 +23,13 @@ object TouchHandler {
                         Touch.touchDown(x, y, id)
                         return successResponse("null")
                     }
-//                    "touchmove" -> {
-//                        val x = jsonCommand.getAsJsonPrimitive("x").asDouble.toFloat()
-//                        val y = jsonCommand.getAsJsonPrimitive("y").asDouble.toFloat()
-//                        val id = jsonCommand.getAsJsonPrimitive("id").asInt
-//                        val duration = if (jsonCommand.has("duration")) jsonCommand.getAsJsonPrimitive("duration").asLong else 150L
-//                        val jitter = if (jsonCommand.has("jitter")) jsonCommand.getAsJsonPrimitive("jitter").asBoolean else true
-//                        Touch.touchMove(x, y, id, duration, jitter)
-//                        return successResponse("null")
-//                    }
+                    "touchmove" -> {
+                        val x = jsonCommand.getAsJsonPrimitive("x").asDouble.toFloat()
+                        val y = jsonCommand.getAsJsonPrimitive("y").asDouble.toFloat()
+                        val id = jsonCommand.getAsJsonPrimitive("id").asInt
+                        Touch.touchMove(x, y, id)
+                        return successResponse("null")
+                    }
                     "touchup" -> {
                         val id = jsonCommand.getAsJsonPrimitive("id").asInt
                         Touch.touchUp(id)
