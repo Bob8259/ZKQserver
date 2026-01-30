@@ -5,33 +5,51 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.InputEvent
 import android.view.MotionEvent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.lang.reflect.Method
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.random.Random
+import java.util.Arrays
+
+// 1. 定义一个类似 Scrcpy 的 Pointer 类，管理单个点的属性
+class Pointer {
+    // 对应 Scrcpy 的 Point 逻辑
+    var x: Float = 0f
+    var y: Float = 0f
+    var pressure: Float = 0f
+    var up: Boolean = false // 标记是否处于抬起状态
+
+    fun setPoint(x: Float, y: Float) {
+        this.x = x
+        this.y = y
+    }
+}
 
 class Touch {
     companion object {
         internal var inputManager: Any? = null
         internal var injectInputEventMethod: Method? = null
 
-        internal val pointerStateMap = ConcurrentHashMap<Int, PointerState>()
-        // Keeps track of active pointer IDs in order to assign indices
-        internal val activePointerIds = CopyOnWriteArrayList<Int>()
-        internal val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        // 2. 引入 MAX_POINTERS 限制，模仿 Scrcpy 的 PointersState
+        private const val MAX_POINTERS = 10
 
-        internal data class PointerState(
-            val downTime: Long,
-            var lastX: Float,
-            var lastY: Float
-        )
+        // 对应 Scrcpy 的 PointersState 逻辑
+        private val pointers = Array(MAX_POINTERS) { Pointer() }
+        private val pointerProperties = Array(MAX_POINTERS) { MotionEvent.PointerProperties() }
+        private val pointerCoords = Array(MAX_POINTERS) { MotionEvent.PointerCoords() }
+
+        // 映射表：外部 ID -> 内部 Index (0-9)
+        private val pointerIdToLocalIndex = IntArray(MAX_POINTERS) { -1 }
+        private var pointersCount = 0
 
         init {
+            // 初始化 PointerProperties，避免在循环中重复创建 (Scrcpy 优化)
+            for (i in 0 until MAX_POINTERS) {
+                val props = MotionEvent.PointerProperties()
+                props.toolType = MotionEvent.TOOL_TYPE_FINGER
+                pointerProperties[i] = props
+
+                val coords = MotionEvent.PointerCoords()
+                pointerCoords[i] = coords
+            }
+
             try {
                 val serviceManagerClass = Class.forName("android.os.ServiceManager")
                 val getServiceMethod = serviceManagerClass.getMethod("getService", String::class.java)
@@ -53,182 +71,160 @@ class Touch {
 
         @Synchronized
         fun touchDown(x: Float, y: Float, id: Int) {
-            val now = SystemClock.uptimeMillis()
-            val state = PointerState(now, x, y)
-            pointerStateMap[id] = state
-
-            if (!activePointerIds.contains(id)) {
-                activePointerIds.add(id)
+            // 逻辑修正：映射 ID
+            var index = getLocalIndex(id)
+            if (index == -1) {
+                index = allocLocalIndex(id)
+                if (index == -1) return // 超过最大触控点数
             }
 
-            val index = activePointerIds.indexOf(id)
-            val action = if (activePointerIds.size == 1) {
+            val pointer = pointers[index]
+            pointer.setPoint(x, y)
+            pointer.pressure = 1.0f // 按下时压力为 1
+            pointer.up = false
+
+            val now = SystemClock.uptimeMillis()
+
+            // 计算 Action
+            val action = if (pointersCount == 1) {
                 MotionEvent.ACTION_DOWN
             } else {
-                MotionEvent.ACTION_POINTER_DOWN or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+                // 计算该点在当前 active 点中的视觉索引 (逻辑较复杂，简化处理，Scrcpy 是通过重新排列 props 实现的)
+                // 这里我们直接用 pointersCount - 1 近似，或者严格重排。
+                // 为了严谨，下面 inject 时会重组数组。
+                val actionIndex = getActionIndex(index)
+                MotionEvent.ACTION_POINTER_DOWN or (actionIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
             }
 
             injectMotionEvent(action, now, now)
         }
 
-        fun touchMove(x: Float, y: Float, id: Int, duration: Long = 150L, jitter: Boolean = true) {
-            val state = pointerStateMap[id] ?: return
-            val fromX = state.lastX
-            val fromY = state.lastY
-            val downTime = state.downTime
+        @Synchronized
+        fun touchMove(x: Float, y: Float, id: Int) {
+            val index = getLocalIndex(id)
+            if (index == -1) return
 
-            scope.launch {
-                val startTime = SystemClock.uptimeMillis()
-                val steps = (duration / 5).toInt().coerceAtLeast(1)
+            val pointer = pointers[index]
+            pointer.setPoint(x, y)
+            pointer.pressure = 1.0f
+            pointer.up = false
 
-                if (!jitter) {
-                    // Move in a straight line without any jitter or curves
-                    for (i in 1..steps) {
-                        val progress = i.toFloat() / steps
-                        val currentX = fromX + (x - fromX) * progress
-                        val currentY = fromY + (y - fromY) * progress
-                        val currentTime = startTime + (duration * progress).toLong()
-
-                        state.lastX = currentX
-                        state.lastY = currentY
-
-                        injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, currentTime)
-                        // Randomize delay slightly to avoid perfectly uniform intervals
-                        delay(Random.nextLong(4, 6))
-                    }
-
-                    state.lastX = x
-                    state.lastY = y
-                    injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, SystemClock.uptimeMillis())
-                    return@launch
-                }
-
-                // jitter == true: build a path consisting of a single quadratic Bezier curve
-                val dx = x - fromX
-                val dy = y - fromY
-                // normalize direction (avoid division by zero)
-                val length = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(1f)
-                val ux = dx / length
-                val uy = dy / length
-                // perpendicular vector
-                val px = -uy
-                val py = ux
-
-                // randomize curve offset magnitude (small, human-like)
-                val maxCurveOffset = 50f + Random.nextFloat() * 20f
-
-                // single control point placed near midpoint along the straight line, offset perpendicularly
-                val cx = fromX + dx * 0.5f + px * ((Random.nextFloat() - 0.5f) * 2f * maxCurveOffset)
-                val cy = fromY + dy * 0.5f + py * ((Random.nextFloat() - 0.5f) * 2f * maxCurveOffset)
-
-                for (i in 1..steps) {
-                    val progress = i.toFloat() / steps
-                    val currentTime = startTime + (duration * progress).toLong()
-
-                    // single quadratic Bezier: from -> to, control = (cx, cy)
-                    val t = progress
-                    val inv = 1f - t
-                    val bx = inv * inv * fromX + 2f * inv * t * cx + t * t * x
-                    val by = inv * inv * fromY + 2f * inv * t * cy + t * t * y
-
-                    // small per-step random jitter to simulate human noise
-                    val jitterX = (Random.nextFloat() - 0.5f) * 3f
-                    val jitterY = (Random.nextFloat() - 0.5f) * 3f
-
-                    val finalX = bx + jitterX
-                    val finalY = by + jitterY
-
-                    state.lastX = finalX
-                    state.lastY = finalY
-
-                    injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, currentTime)
-                    delay(Random.nextLong(4, 6))
-                }
-
-                state.lastX = x
-                state.lastY = y
-                injectMotionEvent(MotionEvent.ACTION_MOVE, downTime, SystemClock.uptimeMillis())
-            }
+            val now = SystemClock.uptimeMillis()
+            injectMotionEvent(MotionEvent.ACTION_MOVE, now, now) // Move 时间应该使用 downTime 吗？Scrcpy 其实是用最新的 now
         }
-
 
         @Synchronized
         fun touchUp(id: Int) {
-            val state = pointerStateMap[id] ?: return
-            val now = SystemClock.uptimeMillis()
-
-            val index = activePointerIds.indexOf(id)
+            val index = getLocalIndex(id)
             if (index == -1) return
 
-            val action = if (activePointerIds.size == 1) {
+            val pointer = pointers[index]
+            // 致命修正 1：Scrcpy 在 UP 时压力设为 0
+            pointer.pressure = 0.0f
+            pointer.up = true
+
+            val now = SystemClock.uptimeMillis()
+            val actionIndex = getActionIndex(index)
+
+            val action = if (pointersCount == 1) {
                 MotionEvent.ACTION_UP
             } else {
-                MotionEvent.ACTION_POINTER_UP or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+                MotionEvent.ACTION_POINTER_UP or (actionIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
             }
 
-            injectMotionEvent(action, state.downTime, now)
+            injectMotionEvent(action, now, now)
 
-            activePointerIds.removeAt(index)
-            pointerStateMap.remove(id)
+            // 清理 ID
+            freeLocalIndex(index)
         }
 
-        internal fun injectMotionEvent(action: Int, downTime: Long, eventTime: Long) {
-            val pointerCount = activePointerIds.size
-            if (pointerCount == 0) return
+        // 核心：复刻 Scrcpy 的 update 逻辑
+        private fun injectMotionEvent(action: Int, downTime: Long, eventTime: Long) {
+            // 重新整理 props 和 coords 数组，使其紧凑
+            var currentCount = 0
+            // 这里的逻辑必须保证 props 数组中的顺序与 pointerIdToLocalIndex 中的有效位一致
+            // Scrcpy 是通过遍历所有可能的 id 来实现的
 
-            val pointerProperties = arrayOfNulls<MotionEvent.PointerProperties>(pointerCount)
-            val pointerCoords = arrayOfNulls<MotionEvent.PointerCoords>(pointerCount)
+            val finalProps = ArrayList<MotionEvent.PointerProperties>()
+            val finalCoords = ArrayList<MotionEvent.PointerCoords>()
 
-            for (i in 0 until pointerCount) {
-                val id = activePointerIds[i]
-                val state = pointerStateMap[id] ?: continue
+            for (i in 0 until MAX_POINTERS) {
+                if (pointerIdToLocalIndex[i] != -1) { // 这是一个活跃的点
+                    val props = pointerProperties[i]
+                    val coords = pointerCoords[i]
+                    val pointer = pointers[i]
 
-                val props = MotionEvent.PointerProperties()
-                props.id = id
-                props.toolType = MotionEvent.TOOL_TYPE_FINGER
-                pointerProperties[i] = props
+                    props.id = i // 使用本地 ID (0-9)
 
-                val coords = MotionEvent.PointerCoords()
-                coords.x = state.lastX
-                coords.y = state.lastY
-                // Randomize pressure and size slightly
-                coords.pressure = 0.7f + Random.nextFloat() * 0.3f
-                coords.size = 0.05f + Random.nextFloat() * 0.05f
-                pointerCoords[i] = coords
+                    coords.x = pointer.x
+                    coords.y = pointer.y
+                    coords.pressure = pointer.pressure
+                    coords.size = 1.0f
+
+                    finalProps.add(props)
+                    finalCoords.add(coords)
+                    currentCount++
+                }
             }
 
-            // Filter out any nulls if state was missing
-            val validProps = pointerProperties.filterNotNull().toTypedArray()
-            val validCoords = pointerCoords.filterNotNull().toTypedArray()
-
-            if (validProps.size != pointerCount) return
+            if (finalProps.isEmpty()) return
 
             val event = MotionEvent.obtain(
-                downTime,
+                downTime, // 注意：Scrcpy 会记录第一个点的 downTime，这里简化使用传入值
                 eventTime,
                 action,
-                pointerCount,
-                validProps,
-                validCoords,
-                0, // metaState
-                0, // buttonState
-                // Randomize precision slightly to simulate different touch resolutions/noise
-                0.9f + Random.nextFloat() * 0.2f, // xPrecision
-                0.9f + Random.nextFloat() * 0.2f, // yPrecision
-                0, // deviceId
-                0, // edgeFlags
-                InputDevice.SOURCE_TOUCHSCREEN,
-                0 // flags
+                finalProps.size,
+                finalProps.toTypedArray(),
+                finalCoords.toTypedArray(),
+                0, 0, 1.0f, 1.0f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
             )
 
             try {
-                // INJECT_INPUT_EVENT_MODE_ASYNC = 0
-                injectInputEventMethod?.invoke(inputManager, event, 0)
+                injectInputEventMethod?.invoke(inputManager, event, 0) // ASYNC
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
                 event.recycle()
             }
+        }
+
+        // --- 辅助状态管理 ---
+
+        private fun getLocalIndex(externalId: Int): Int {
+            // 简单哈希查找，Scrcpy 用的是遍历
+            for (i in 0 until MAX_POINTERS) {
+                if (pointerIdToLocalIndex[i] == externalId) return i
+            }
+            return -1
+        }
+
+        private fun allocLocalIndex(externalId: Int): Int {
+            for (i in 0 until MAX_POINTERS) {
+                if (pointerIdToLocalIndex[i] == -1) {
+                    pointerIdToLocalIndex[i] = externalId
+                    pointersCount++
+                    return i
+                }
+            }
+            return -1
+        }
+
+        private fun freeLocalIndex(index: Int) {
+            if (pointerIdToLocalIndex[index] != -1) {
+                pointerIdToLocalIndex[index] = -1
+                pointersCount--
+            }
+        }
+
+        // 获取当前点在所有活跃点中的排位（用于计算 ACTION_POINTER_INDEX）
+        private fun getActionIndex(localIndex: Int): Int {
+            var actionIndex = 0
+            for (i in 0 until localIndex) {
+                if (pointerIdToLocalIndex[i] != -1) {
+                    actionIndex++
+                }
+            }
+            return actionIndex
         }
     }
 }
