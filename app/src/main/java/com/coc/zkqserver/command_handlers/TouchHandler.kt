@@ -37,30 +37,6 @@ object TouchHandler {
                         Touch.touchUp(id)
                         return successResponse("null")
                     }
-//                    "pinchin" -> {
-//                        val x1 = jsonCommand.getAsJsonPrimitive("x1").asDouble.toFloat()
-//                        val y1 = jsonCommand.getAsJsonPrimitive("y1").asDouble.toFloat()
-//                        val x2 = jsonCommand.getAsJsonPrimitive("x2").asDouble.toFloat()
-//                        val y2 = jsonCommand.getAsJsonPrimitive("y2").asDouble.toFloat()
-//                        val finalX = jsonCommand.getAsJsonPrimitive("finalX").asDouble.toFloat()
-//                        val finalY = jsonCommand.getAsJsonPrimitive("finalY").asDouble.toFloat()
-//                        val duration = if (jsonCommand.has("duration")) jsonCommand.getAsJsonPrimitive("duration").asLong else 150L
-//                        val jitter = if (jsonCommand.has("jitter")) jsonCommand.getAsJsonPrimitive("jitter").asBoolean else true
-//                        Pinch.pinchIn(x1, y1, x2, y2, finalX, finalY, duration, jitter)
-//                        return successResponse("null")
-//                    }
-//                    "pinchout" -> {
-//                        val x1 = jsonCommand.getAsJsonPrimitive("x1").asDouble.toFloat()
-//                        val y1 = jsonCommand.getAsJsonPrimitive("y1").asDouble.toFloat()
-//                        val x2 = jsonCommand.getAsJsonPrimitive("x2").asDouble.toFloat()
-//                        val y2 = jsonCommand.getAsJsonPrimitive("y2").asDouble.toFloat()
-//                        val finalX = jsonCommand.getAsJsonPrimitive("finalX").asDouble.toFloat()
-//                        val finalY = jsonCommand.getAsJsonPrimitive("finalY").asDouble.toFloat()
-//                        val duration = if (jsonCommand.has("duration")) jsonCommand.getAsJsonPrimitive("duration").asLong else 150L
-//                        val jitter = if (jsonCommand.has("jitter")) jsonCommand.getAsJsonPrimitive("jitter").asBoolean else true
-//                        Pinch.pinchOut(x1, y1, x2, y2, finalX, finalY, duration, jitter)
-//                        return successResponse("null")
-//                    }
                     else -> {
                         return errorResponse("Unknown touch sub-action: $subAction")
                     }
