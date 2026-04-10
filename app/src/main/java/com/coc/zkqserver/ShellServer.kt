@@ -1,8 +1,6 @@
 package com.coc.zkqserver
 
-import com.coc.zkqserver.command_handlers.DatabaseHandler
 import com.coc.zkqserver.command_handlers.FileHandler
-import com.coc.zkqserver.command_handlers.SystemHanlder
 import com.coc.zkqserver.command_handlers.TouchHandler
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -50,14 +48,6 @@ object ShellServer {
                                                 }
                                                 "file_action" -> {
                                                     val response = FileHandler.handle(text)
-                                                    send(Frame.Text(response))
-                                                }
-                                                "system_action" -> {
-                                                    val response = SystemHanlder.handle(text)
-                                                    send(Frame.Text(response))
-                                                }
-                                                "database_action" -> {
-                                                    val response = DatabaseHandler.handle(text)
                                                     send(Frame.Text(response))
                                                 }
                                                 else -> {
