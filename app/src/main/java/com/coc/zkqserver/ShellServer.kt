@@ -4,9 +4,13 @@ import com.coc.zkqserver.command_handlers.FileHandler
 import com.coc.zkqserver.command_handlers.TouchHandler
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import io.ktor.http.ContentType
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.request.queryString
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
@@ -67,6 +71,32 @@ object ShellServer {
                         } finally {
                             println("Client disconnected")
                         }
+                    }
+
+                    // HTTP GET endpoint: all command parameters are passed as URL query parameters.
+                    // Example: GET /zkq?actionType=connection_test
+                    get("/zkq") {
+                        val params = call.request.queryParameters
+
+                        // Build a JsonObject from all query parameters so existing handlers can reuse it directly
+                        val jsonObject = JsonObject()
+                        params.names().forEach { name ->
+                            jsonObject.addProperty(name, params[name])
+                        }
+
+                        val actionType = params["actionType"]
+                        val responseJson = when (actionType) {
+                            "connection_test" -> {
+                                val response = JsonObject()
+                                response.addProperty("status", "success")
+                                response.addProperty("data", "connected")
+                                response.toString()
+                            }
+                            "file_action" -> FileHandler.handle(jsonObject.toString())
+                            else -> TouchHandler.handle(jsonObject.toString())
+                        }
+
+                        call.respondText(responseJson, ContentType.Application.Json)
                     }
                 }
             }.start(wait = true)
