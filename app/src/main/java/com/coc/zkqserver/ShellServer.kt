@@ -9,14 +9,11 @@ import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.http.ContentType
-import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
-import io.ktor.server.websocket.WebSockets
-import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.delay
@@ -40,54 +37,7 @@ object ShellServer {
             // Launch the embedded WebSocket/HTTP server in a concurrent coroutine
             launch {
                 embeddedServer(CIO, port = 6839) {
-                    install(WebSockets) {
-                        pingPeriodMillis = 15000L
-                        timeoutMillis = 15000L
-                        maxFrameSize = 20 * 1024 * 1024L
-                        masking = false
-                    }
                     routing {
-                        webSocket("/zkq") {
-                            println("Client connected")
-                            try {
-                                for (frame in incoming) {
-                                    if (frame is Frame.Text) {
-                                        val text = frame.readText()
-                                        try {
-                                            val jsonElement = JsonParser.parseString(text)
-                                            if (jsonElement.isJsonObject) {
-                                                val actionType =
-                                                    jsonElement.asJsonObject.getAsJsonPrimitive("actionType")?.asString
-                                                when (actionType) {
-                                                    "connection_test" -> {
-                                                        val response = JsonObject()
-                                                        response.addProperty("status", "success")
-                                                        response.addProperty("data", "connected")
-                                                        send(Frame.Text(response.toString()))
-                                                    }
-                                                    "file_action" -> {
-                                                        val response = FileHandler.handle(text)
-                                                        send(Frame.Text(response))
-                                                    }
-                                                    else -> {
-                                                        // Removed clipboard_action; defaults to TouchHandler
-                                                        val response = TouchHandler.handle(text)
-                                                        send(Frame.Text(response))
-                                                    }
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            println("Error handling frame: ${e.message}")
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                println("Connection error: ${e.message}")
-                            } finally {
-                                println("Client disconnected")
-                            }
-                        }
-
                         // HTTP GET endpoint: all command parameters are passed as URL query parameters.
                         // Example: GET /zkq?actionType=connection_test
                         get("/zkq") {
