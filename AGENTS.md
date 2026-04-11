@@ -1,0 +1,1 @@
+My code will be packed into an APK, and executed through `app_process` with `su`. So, it has not traditional android context, but has Root access.
