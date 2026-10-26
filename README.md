@@ -1,8 +1,8 @@
 # ZKQserver
 
-ZKQserver 是一个运行在 Android Root 环境下的自动化客户端程序。它通过 `app_process` 以 `su` 权限启动，作为 WebSocket 客户端主动连接上游控制服务，并执行服务端下发的触摸模拟与文件系统操作指令。
+ZKQserver 是一个运行在 Android Root 环境下的自动化客户端程序。它通过 `app_process` 以 `su` 权限启动，作为客户端通过 **Unix Domain Socket** 主动连接上游控制服务，并执行服务端下发的触摸模拟与文件系统操作指令。
 
-> 本进程**不监听任何本地端口**。所有指令均由上游服务端通过 WebSocket 下发。
+> 本进程**不监听任何端口**。所有指令均由上游服务端通过 Unix Domain Socket 下发。
 
 ---
 
@@ -34,21 +34,31 @@ ZKQserver 是一个运行在 Android Root 环境下的自动化客户端程序�
 ## 启动方式
 
 ```sh
+# 使用默认 socket 名 zkqRootServer
 CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.AppProcessClient
+
+# 自定义 socket 名
+CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.AppProcessClient mySocketName
 ```
 
-`com.coc.zkqserver.AppProcessClient` 是唯一的启动入口，启动后即以客户端身份连接上游服务。
+`com.coc.zkqserver.AppProcessClient` 是唯一的启动入口。第一个位置参数是可选的 socket 名，省略时默认为 `zkqRootServer`。
+
+| 参数形式 | 命名空间 | 说明 |
+| --- | --- | --- |
+| `zkqRootServer`（默认） | abstract | 裸名，使用 Linux 抽象命名空间，无需文件系统权限，进程退出后自动消失 |
+| `/data/local/tmp/zkq.sock` | filesystem | 以 `/` 开头的绝对路径，使用文件系统 socket，需要目录写权限 |
 
 ---
 
 ## 连接上游服务
 
-进程启动后**不监听任何端口**，而是作为 WebSocket 客户端主动连接上游服务：
+进程启动后**不监听任何端口**，而是作为客户端主动连接上游服务：
 
 | 项目 | 值 |
 | --- | --- |
-| 地址 | `ws://localhost:16839/zkq` |
-| 协议 | WebSocket，文本帧，JSON 负载 |
+| Socket 名 | `zkqRootServer`（默认，可用启动参数覆盖） |
+| 传输层 | Unix Domain Socket（`android.net.LocalSocket`） |
+| 帧格式 | NDJSON：每帧一个 JSON 对象 + 单个 `\n` |
 | 重连间隔 | 2 秒 |
 
 ---
@@ -220,9 +230,9 @@ CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqs
 
 ## 连接行为
 
-启动后即以 WebSocket 客户端身份主动连接 `ws://localhost:16839/zkq`，不监听任何本地端口。
+启动后即以客户端身份主动连接指定的 Unix Domain Socket，不监听任何端口。
 
-- 启动时自动尝试连接 `ws://localhost:16839/zkq`。
+- 启动时自动尝试连接目标 socket。
 - 若连接失败，等待 **2 秒** 后重试，直到连接成功。
 - 连接断开后按相同策略自动重连。
 
@@ -239,7 +249,7 @@ CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqs
 
 ### 接收并处理命令
 
-服务器通过 WebSocket 向客户端发送 JSON 命令帧，客户端根据 `actionType` 分发处理，并将结果响应回服务器。
+服务器通过 Unix Domain Socket 向客户端发送 NDJSON 帧（每帧一个 JSON 对象，以单个 `\n` 结尾），客户端根据 `actionType` 分发处理，并将结果以同样格式的帧响应回服务器。
 
 | `actionType` | 是否返回响应 |
 | --- | --- |

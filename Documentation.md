@@ -1,6 +1,6 @@
-This documentation covers the ZKQserver client. The process does **not** listen on any local port; it connects out to an upstream server and executes the commands that server sends.
+This documentation covers the ZKQserver client. The process does **not** listen on any socket; it connects out to an upstream server and executes the commands that server sends.
 
-Upstream URL: `ws://localhost:16839/zkq` (WebSocket, JSON text frames)
+Transport: Unix domain socket, default name `zkqRootServer`, newline-delimited JSON.
 
 
 ---
@@ -195,7 +195,7 @@ Commands used for interacting with the device file system. These use `actionType
 
 ## 3. Connection Test
 
-Used to verify the WebSocket link to the upstream server.
+Used to verify the link to the upstream server.
 
 ### Connection Test
 
@@ -218,23 +218,40 @@ Used to verify the WebSocket link to the upstream server.
 
 ## 4. Client Mode (app_process)
 
-When launched via `app_process`, the app runs purely as a WebSocket client and connects out to the upstream server at `ws://localhost:16839/zkq`. It opens no listening socket. The entry point is `com.coc.zkqserver.AppProcessClient`.
+When launched via `app_process`, the app runs purely as a client. It dials the upstream server over a **Unix domain socket** and opens no listening socket of its own. The entry point is `com.coc.zkqserver.AppProcessClient`.
 
 ### Launch Command
 
 ```sh
+# Default socket name (zkqRootServer)
 CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.AppProcessClient
+
+# Custom socket name
+CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.AppProcessClient mySocketName
 ```
+
+The first positional argument is optional and selects the socket name. It defaults to `zkqRootServer`.
+
+| Argument | Namespace | Notes |
+| --- | --- | --- |
+| `zkqRootServer` (default) | abstract | Bare name in the Linux abstract namespace. Needs no filesystem permission, and the name disappears automatically when the process exits. |
+| `/data/local/tmp/zkq.sock` | filesystem | Absolute path. Requires write access to the parent directory, and the server must unlink a stale socket file when restarting. |
+
+### Wire Format
+
+Frames are newline-delimited JSON (NDJSON): one JSON object followed by a single `\n` byte, in both directions. JSON string escaping guarantees a payload never contains a raw newline, so the delimiter stays unambiguous. The client buffers at most 1 MiB per frame and drops the remainder of anything larger.
+
+This replaces the WebSocket text frames used by earlier versions. WebSocket is an HTTP upgrade layered on TCP and cannot be carried over a Unix domain socket, so the transport changed rather than being wrapped.
 
 ### Connection Behavior
 
-- On startup, the client attempts to connect to `ws://localhost:16839/zkq`.
+- On startup, the client attempts to connect to the configured socket.
 - If the connection fails for any reason, it waits **2 seconds** and retries. This loop runs indefinitely until a connection is established.
 - Reconnection follows the same retry policy if the server drops the connection.
 
 ### Announcement Message
 
-Immediately after the **first** successful connection, the client sends the following message to the server:
+Immediately after the **first** successful connection, the client sends the following frame to the server:
 
 ```json
 {
@@ -247,7 +264,7 @@ No announcement is sent on subsequent reconnections.
 
 ### Receiving Actions from the Server
 
-The server sends JSON text frames to the client over the WebSocket connection. The client reads the `actionType` field and dispatches accordingly. Every handled message produces a JSON response that is sent back to the server over the same connection.
+The server writes NDJSON frames to the socket. The client reads each frame, dispatches on its `actionType` field, and writes a response frame back over the same connection.
 
 | `actionType` | Returns response? |
 | --- | --- |
