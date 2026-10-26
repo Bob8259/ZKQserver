@@ -1,6 +1,8 @@
 # ZKQserver
 
-ZKQserver 是一个运行在 Android Root 环境下的自动化服务端程序。它通过 `app_process` 以 `su` 权限启动，内嵌 WebSocket / HTTP 服务器，对外提供触摸模拟与文件系统操作等能力，并可同时作为 WebSocket 客户端主动连接上层控制服务。
+ZKQserver 是一个运行在 Android Root 环境下的自动化客户端程序。它通过 `app_process` 以 `su` 权限启动，作为 WebSocket 客户端主动连接上游控制服务，并执行服务端下发的触摸模拟与文件系统操作指令。
+
+> 本进程**不监听任何本地端口**。所有指令均由上游服务端通过 WebSocket 下发。
 
 ---
 
@@ -8,14 +10,13 @@ ZKQserver 是一个运行在 Android Root 环境下的自动化服务端程序�
 
 - [运行环境](#运行环境)
 - [启动方式](#启动方式)
-- [连接方式](#连接方式)
+- [连接上游服务](#连接上游服务)
 - [响应格式](#响应格式)
 - [API 说明](#api-说明)
   - [1. 连接测试](#1-连接测试)
   - [2. 触摸模拟](#2-触摸模拟)
   - [3. 文件操作](#3-文件操作)
-  - [4. HTTP GET 接口](#4-http-get-接口)
-- [客户端模式（app_process）](#客户端模式app_process)
+- [连接行为](#连接行为)
 
 ---
 
@@ -33,21 +34,22 @@ ZKQserver 是一个运行在 Android Root 环境下的自动化服务端程序�
 ## 启动方式
 
 ```sh
-CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.ShellServer
+CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.AppProcessClient
 ```
 
-> 如果只需要客户端功能（不启动内嵌服务器），可使用入口点 `com.coc.zkqserver.AppProcessClient`。
+`com.coc.zkqserver.AppProcessClient` 是唯一的启动入口，启动后即以客户端身份连接上游服务。
 
 ---
 
-## 连接方式
+## 连接上游服务
 
-服务器启动后监听本地端口 **6839**，支持以下两种连接方式：
+进程启动后**不监听任何端口**，而是作为 WebSocket 客户端主动连接上游服务：
 
-| 方式 | 地址 |
+| 项目 | 值 |
 | --- | --- |
-| WebSocket | `ws://localhost:6839/zkq` |
-| HTTP GET | `http://localhost:6839/zkq` |
+| 地址 | `ws://localhost:16839/zkq` |
+| 协议 | WebSocket，文本帧，JSON 负载 |
+| 重连间隔 | 2 秒 |
 
 ---
 
@@ -216,40 +218,9 @@ CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqs
 
 ---
 
-### 4. HTTP GET 接口
+## 连接行为
 
-WebSocket 支持的所有命令均可通过 HTTP GET 请求访问，JSON 字段改为 URL 查询参数传递，路径中的特殊字符需进行 URL 编码（如 `/` 编码为 `%2F`）。
-
-**基础地址：** `http://localhost:6839/zkq`
-
-```
-# 连接测试
-GET /zkq?actionType=connection_test
-
-# 触摸操作
-GET /zkq?actionType=touch_action&subAction=touchdown&x=500.0&y=500.0&id=1
-GET /zkq?actionType=touch_action&subAction=touchmove&x=600.0&y=600.0&id=1
-GET /zkq?actionType=touch_action&subAction=touchup&id=1
-
-# 文件操作
-GET /zkq?actionType=file_action&subAction=read&path=%2Fdata%2Fuser%2F0%2Fcom.coc.zkqserver%2Ffiles%2Ftest.txt
-GET /zkq?actionType=file_action&subAction=write&path=%2Fdata%2F...%2Fnew_file.txt&content=Hello%2C%20world.
-GET /zkq?actionType=file_action&subAction=create&path=%2Fdata%2F...%2Fempty_file.txt
-GET /zkq?actionType=file_action&subAction=delete&path=%2Fdata%2F...%2Fold_file.txt
-GET /zkq?actionType=file_action&subAction=check_exists&path=%2Fdata%2F...%2Fmy_document.txt
-GET /zkq?actionType=file_action&subAction=copy&path=%2Fdata%2F...%2Fsource.txt&destPath=%2Fdata%2F...%2Fdestination.txt
-GET /zkq?actionType=file_action&subAction=rename&path=%2Fdata%2F...%2Fold_name.txt&newPath=%2Fdata%2F...%2Fnew_name.txt
-```
-
-响应格式与 WebSocket 接口完全一致。
-
----
-
-## 客户端模式（app_process）
-
-ZKQserver 在以 `app_process` 启动时，会在内嵌服务器运行的同时，作为 WebSocket 客户端主动连接 `ws://localhost:16839/zkq`。
-
-### 连接行为
+启动后即以 WebSocket 客户端身份主动连接 `ws://localhost:16839/zkq`，不监听任何本地端口。
 
 - 启动时自动尝试连接 `ws://localhost:16839/zkq`。
 - 若连接失败，等待 **2 秒** 后重试，直到连接成功。

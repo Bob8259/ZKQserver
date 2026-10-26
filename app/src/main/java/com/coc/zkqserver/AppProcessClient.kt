@@ -14,7 +14,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 /**
- * 客户端入口点，通过 app_process 启动时主动连接到 ws://localhost:16839/zkq。
+ * 唯一的入口点。本进程只作为 WebSocket 客户端运行，不监听任何本地端口。
+ * 通过 app_process 启动时主动连接到上游 ws://localhost:16839/zkq。
  * 连接失败时每 2 秒重试，直到成功为止。
  */
 object AppProcessClient {

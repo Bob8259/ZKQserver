@@ -1,16 +1,13 @@
-This documentation of the server. 
-URL: localhost:6839
-Connect to the server via WebSocket **or** plain HTTP GET.
+This documentation covers the ZKQserver client. The process does **not** listen on any local port; it connects out to an upstream server and executes the commands that server sends.
 
-WebSocket endpoint: `ws://localhost:6839/zkq`
-HTTP GET endpoint:  `http://localhost:6839/zkq`
+Upstream URL: `ws://localhost:16839/zkq` (WebSocket, JSON text frames)
 
 
 ---
 
-# Server API Documentation
+# Client Command Reference
 
-This document outlines the JSON-based command structure for simulating touch interactions and performing file system operations.
+This document outlines the JSON-based command structure for simulating touch interactions and performing file system operations. These are the commands the upstream server sends to the client.
 
 ## 0. Response Format
 
@@ -32,7 +29,7 @@ Most commands return a JSON response to indicate the result of the operation.
 }
 ```
 
-*Note: Currently, `touch_action` commands do not return a response.*
+*Note: `touch_action` commands return `{"status":"success","data":"null"}` on success.*
 
 ---
 
@@ -196,9 +193,9 @@ Commands used for interacting with the device file system. These use `actionType
 ```
 ---
 
-## 3. Server Test
+## 3. Connection Test
 
-Used to test the connection to the server.
+Used to verify the WebSocket link to the upstream server.
 
 ### Connection Test
 
@@ -219,65 +216,15 @@ Used to test the connection to the server.
 
 ---
 
-## 4. HTTP GET Interface
+## 4. Client Mode (app_process)
 
-All commands available over WebSocket are also accessible via plain HTTP GET requests. Parameters that would normally be JSON fields are passed as **URL query parameters**. The response body is the same JSON format as WebSocket.
-
-**Base URL:** `http://localhost:6839/zkq`
-
-All values must be URL-encoded when they contain special characters (e.g. `/` in file paths should be encoded as `%2F`, or the whole path passed URL-encoded).
-
-### Connection Test
-
-```
-GET /zkq?actionType=connection_test
-```
-
-### Touch Actions
-
-```
-GET /zkq?actionType=touch_action&subAction=touchdown&x=500.0&y=500.0&id=1
-GET /zkq?actionType=touch_action&subAction=touchmove&x=600.0&y=600.0&id=1
-GET /zkq?actionType=touch_action&subAction=touchup&id=1
-```
-
-### File Actions
-
-```
-GET /zkq?actionType=file_action&subAction=read&path=%2Fdata%2Fuser%2F0%2Fcom.coc.zkqserver%2Ffiles%2Ftest.txt
-
-GET /zkq?actionType=file_action&subAction=write&path=%2Fdata%2F...%2Fnew_file.txt&content=Hello%2C%20world.
-
-GET /zkq?actionType=file_action&subAction=create&path=%2Fdata%2F...%2Fempty_file.txt
-
-GET /zkq?actionType=file_action&subAction=delete&path=%2Fdata%2F...%2Fold_file.txt
-
-GET /zkq?actionType=file_action&subAction=check_exists&path=%2Fdata%2F...%2Fmy_document.txt
-
-GET /zkq?actionType=file_action&subAction=copy&path=%2Fdata%2F...%2Fsource.txt&destPath=%2Fdata%2F...%2Fdestination.txt
-
-GET /zkq?actionType=file_action&subAction=rename&path=%2Fdata%2F...%2Fold_name.txt&newPath=%2Fdata%2F...%2Fnew_name.txt
-```
-
-### Notes
-
-- The response format is identical to the WebSocket interface (`{"status":"success","data":"..."}` or `{"status":"error","message":"..."}`).
-- Touch actions always return `{"status":"success","data":"null"}`.
-- Query parameter names map 1-to-1 to the JSON field names described in sections 1–3.
-
----
-
-## 5. Client Mode (app_process)
-
-When launched via `app_process`, the app runs the embedded WebSocket/HTTP server **and** simultaneously connects as a WebSocket client to `ws://localhost:16839/zkq`. The standard entry point is `com.coc.zkqserver.ShellServer`.
+When launched via `app_process`, the app runs purely as a WebSocket client and connects out to the upstream server at `ws://localhost:16839/zkq`. It opens no listening socket. The entry point is `com.coc.zkqserver.AppProcessClient`.
 
 ### Launch Command
 
 ```sh
-CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.ShellServer
+CLASSPATH=/data/local/tmp/zkqserver.apk app_process /data/local/tmp com.coc.zkqserver.AppProcessClient
 ```
-
-A client-only entry point (no embedded server) is also available at `com.coc.zkqserver.AppProcessClient` if needed.
 
 ### Connection Behavior
 
